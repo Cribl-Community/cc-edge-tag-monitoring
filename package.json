@@ -1,41 +1,10 @@
 {
   "name": "cc-edge-tag-monitoring",
-  "private": true,
   "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "preview": "vite preview",
-    "package": "npm run build && node scripts/package.mjs"
-  },
-  "dependencies": {
-    "@capra/core": "^1.13.0",
-    "@capra/dx-tokens-postcss-plugin": "^0.4.0",
-    "@capra/icons": "^1.10.0",
-    "@capra/theme": "^1.5.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.2"
-  },
-  "devDependencies": {
-    "@types/node": "^24.13.3",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@vitejs/plugin-react": "^6.1.0",
-    "oxlint": "^1.79.0",
-    "typescript": "~6.0.2",
-    "vite": "^8.2.2"
-  },
   "displayName": "Cribl Edge Monitoring via Tags",
   "description": "Monitor your Edge utilization with tag groupings",
   "author": "securekp",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Cribl-Community/cc-edge-tag-monitoring.git"
-  },
   "cribl": {
     "type": "app",
     "createAppScriptVersion": "0.5.0"
