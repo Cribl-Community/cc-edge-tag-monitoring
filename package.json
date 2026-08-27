@@ -30,7 +30,7 @@
   },
   "displayName": "Cribl Edge Monitoring via Tags",
   "description": "Monitor your Edge utilization with tag groupings",
-  "author": "securekp",
+  "author": "Kelsey Prior - kprior@cribl.io",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
