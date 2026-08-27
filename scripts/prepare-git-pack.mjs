@@ -36,12 +36,16 @@ async function pathExists(filePath) {
 
 function parseVersionArg() {
   const args = parseArgs({ options: { version: { type: 'string' } } });
-  const version = args.values.version;
-  if (!version) {
+  const raw = args.values.version;
+  if (!raw) {
     throw new Error('Missing required --version "X.Y.Z" argument.');
   }
+  // A "-staging" tag (e.g. v1.0.0-staging) publishes the same pack version as
+  // prod; strip the suffix so the manifest version matches the built .tgz. This
+  // mirrors the sed the release workflow applies to the package step.
+  const version = raw.replace(/-staging$/, '');
   if (!semverPattern.test(version)) {
-    throw new Error(`Invalid version "${version}". Expected X.Y.Z.`);
+    throw new Error(`Invalid version "${raw}". Expected X.Y.Z (optionally with a -staging suffix).`);
   }
   return version;
 }
