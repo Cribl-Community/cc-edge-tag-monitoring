@@ -181,7 +181,7 @@ function buildEnrichPipeline(): Pipeline {
     id: EDGE_ENRICH_PIPELINE,
     conf: {
       description: 'cc-edge-tag-monitoring: surface node tags (__metadata.cribl.tags) into fields',
-      streamtags: ['cpe'],
+      streamtags: ['cc-edge-tag-monitoring'],
       groups: {},
       functions: [
         {

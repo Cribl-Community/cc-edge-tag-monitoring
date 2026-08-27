@@ -54,6 +54,40 @@ async function pathExists(filePath) {
 }
 
 /**
+ * Materialize the Cribl pack layout at the repo root for Git-based installs.
+ * Copies dist/ → static/, config files → default/, and writes a minimal package.json.
+ * Release CI commits this onto the tag so "Import from Git" serves the built app.
+ */
+export async function prepareGitPackLayout(_versionOverride = undefined) {
+  const rootDir = join(__dirname, '..');
+  const distDir = join(rootDir, 'dist');
+  const proxiesPath = join(rootDir, 'config', 'proxies.yml');
+  const policiesPath = join(rootDir, 'config', 'policies.yml');
+  const staticDir = join(rootDir, 'static');
+  const defaultDir = join(rootDir, 'default');
+
+  if (!(await pathExists(distDir))) {
+    throw new Error('dist folder not found. Run npm run build first.');
+  }
+
+  if (await pathExists(staticDir)) {
+    await rm(staticDir, { recursive: true, force: true });
+  }
+  await mkdir(staticDir, { recursive: true });
+  await mkdir(defaultDir, { recursive: true });
+
+  await cp(distDir, staticDir, { recursive: true });
+
+  if (await pathExists(proxiesPath)) {
+    await cp(proxiesPath, join(defaultDir, 'proxies.yml'));
+  }
+
+  if (await pathExists(policiesPath)) {
+    await cp(policiesPath, join(defaultDir, 'policies.yml'));
+  }
+}
+
+/**
  * @param {boolean} [dev]
  * @returns {Promise<{ closePromise: Promise<void>; stdout: import('node:stream').Readable }>}
  */
