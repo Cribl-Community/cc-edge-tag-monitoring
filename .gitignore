@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Pack build artifacts
+build
+package-build
+
+# Generated pack layout (materialized onto release tags by CI, not committed to main)
+/static
+/default
+
+# Internal scaffold / planning artifacts (not published to the public repo)
+openapi.json
+executions
+APP_BRIEF.md
+APP_DEFINITION.md
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

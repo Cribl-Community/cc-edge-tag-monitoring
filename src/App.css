@@ -1,0 +1,362 @@
+/* App styling. All colors/spacing come from Capra design tokens via token()
+   (processed by .postcssrc.mjs) — never raw CSS variables or hex. */
+
+* {
+  box-sizing: border-box;
+}
+
+/* ---- Shell ------------------------------------------------------------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: token('color.background.application');
+}
+
+.app-header {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.xs');
+  padding: token('spacing.lg') token('spacing.xl') token('spacing.md');
+}
+
+.app-nav {
+  padding: 0 token('spacing.xl');
+  border-bottom: token('border.default');
+}
+
+.app-main {
+  padding: token('spacing.xl');
+  flex: 1;
+}
+
+/* ---- Page + generic layout -------------------------------------------- */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.xl');
+  max-width: 1200px;
+}
+
+.controls-block {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.sm');
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: token('spacing.md');
+}
+
+.controls-note {
+  max-width: 80ch;
+}
+
+.controls-action {
+  margin-inline-start: auto;
+  align-self: flex-end;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: token('spacing.md');
+}
+
+.save-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: token('spacing.md');
+}
+
+/* ---- Panels ------------------------------------------------------------ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.md');
+  padding: token('spacing.lg');
+  border: token('border.default');
+  border-radius: token('radius.md');
+  background-color: token('color.background.surface');
+}
+
+.dataset-or {
+  display: flex;
+  align-items: center;
+  gap: token('spacing.md');
+  color: token('color.foreground.subtle');
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+
+.dataset-or::before,
+.dataset-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: token('color.border.neutral.subtle');
+}
+
+/* ---- Volume table ------------------------------------------------------ */
+
+.vtable-wrap {
+  overflow-x: auto;
+}
+
+.vtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.vtable-th {
+  text-align: left;
+  padding: token('spacing.sm') token('spacing.md');
+  border-bottom: token('border.default');
+  color: token('color.foreground.subtle');
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vtable-td {
+  padding: token('spacing.sm') token('spacing.md');
+  border-bottom: token('border.default');
+  color: token('color.foreground.default');
+  vertical-align: middle;
+}
+
+.vtable-num {
+  text-align: right;
+}
+
+.vtable-foot {
+  font-weight: 600;
+  border-top: token('border.default');
+}
+
+.vtable-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: token('radius.full');
+  margin-inline-end: token('spacing.sm');
+  vertical-align: middle;
+}
+
+/* ---- Chart ------------------------------------------------------------- */
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.sm');
+  width: 100%;
+}
+
+.chart-svg {
+  width: 100%;
+  height: auto;
+}
+
+.chart-grid {
+  stroke: token('color.border.neutral.subtle');
+  stroke-width: 1;
+}
+
+.chart-axis-label {
+  fill: token('color.foreground.subtle');
+  font-size: 11px;
+}
+
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: token('spacing.md');
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: token('spacing.xs');
+  background: none;
+  border: none;
+  padding: token('spacing.xs');
+  cursor: pointer;
+}
+
+.chart-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: token('radius.full');
+  border: 2px solid transparent;
+}
+
+/* ---- Settings: tag dimensions ----------------------------------------- */
+
+.dim-list {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.md');
+}
+
+.dim-row {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.xs');
+  padding-bottom: token('spacing.md');
+  border-bottom: token('border.default');
+}
+
+.dim-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: token('spacing.xs');
+}
+
+/* ---- Setup Guide ------------------------------------------------------- */
+
+.setup-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: token('spacing.sm');
+  margin-top: token('spacing.md');
+}
+
+.setup-arrow {
+  color: token('color.foreground.subtle');
+}
+
+/* Stacks a collapsible section's body with consistent vertical rhythm, since the
+   Capra Collapse content region lays children out in normal block flow. */
+.section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.md');
+}
+
+.setup-recheck {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.sm');
+  /* Spacing around the step list is handled by the parent's gap (.section-stack
+     or .panel), so no external margin here. */
+  margin: 0;
+}
+
+/* Optional/advanced Edge steps, tucked into a nested Collapse below the required
+   numbered steps so they read as clearly secondary. */
+.setup-optional-body {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.lg');
+}
+
+.setup-optional-row {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.sm');
+}
+
+.setup-optional-action {
+  display: flex;
+  gap: token('spacing.sm');
+  margin-top: token('spacing.xs');
+}
+
+.setup-step {
+  display: flex;
+  align-items: center;
+  gap: token('spacing.md');
+  padding: token('spacing.md');
+  border: token('border.default');
+  border-radius: token('radius.md');
+  background-color: token('color.background.surface');
+}
+
+.setup-step-num {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: token('radius.full');
+  background-color: token('color.background.neutral.default');
+  color: token('color.foreground.default');
+  font-weight: 600;
+}
+
+.setup-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.xs');
+  flex: 1;
+  min-width: 0;
+}
+
+.setup-step-head {
+  display: flex;
+  align-items: center;
+  gap: token('spacing.sm');
+}
+
+.setup-step-action {
+  flex-shrink: 0;
+  display: flex;
+  gap: token('spacing.sm');
+  align-items: center;
+}
+
+.verify-result {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.md');
+  margin-top: token('spacing.md');
+}
+
+.verify-sample {
+  padding: token('spacing.md');
+  border: token('border.default');
+  border-radius: token('radius.md');
+  background-color: token('color.background.neutral.subtle');
+  color: token('color.foreground.default');
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 12px;
+}
+
+.verify-map {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.sm');
+}
+
+.inline-code {
+  padding: 1px 4px;
+  border-radius: token('radius.md');
+  background-color: token('color.background.neutral.subtle');
+  color: token('color.foreground.default');
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-word;
+}
