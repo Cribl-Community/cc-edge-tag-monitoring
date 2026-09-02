@@ -8,10 +8,12 @@ sending what.
 
 ## Installation
 
-1. Log in to Cribl and then click on **Apps->View All**.
-2. Click **Add App->Import from Git**.
-3. Paste `https://github.com/Cribl-Community/cc-edge-tag-monitoring` and `latest` for the release tag.
-4. Click **Import**.
+Install directly from the Cribl Marketplace (Organization administrators only):
+
+1. Log in to Cribl and click **Apps** in the top navigation.
+2. Open the **Cribl Marketplace** catalog and find **Cribl Edge Monitoring via Tags**.
+3. Review the app's **Overview**, **Permissions**, and **External API Access**, then click **Install**.
+4. Complete any pre-install checks Cribl prompts you with.
 
 ## What it does
 
@@ -72,6 +74,7 @@ Package a release artifact locally with `npm run package -- --version "1.0.0"`
 
 | Version | Changes |
 |---------|---------|
+| 1.0.3   | Documentation: install via the Cribl Marketplace (replaces Import from Git). |
 | 1.0.0   | Initial release: tag-grouped Edge volume dashboard, guided multi-fleet setup, configurable dimensions, optional throughput-only filtering and tag baking, and Cribl Search deep links. |
 
 ## License
