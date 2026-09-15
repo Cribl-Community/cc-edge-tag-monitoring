@@ -33,6 +33,7 @@ export function Settings() {
   const [datasets, setDatasets] = useState<LakeDataset[] | null>(null)
   const [dsLoading, setDsLoading] = useState(true)
   const [dsError, setDsError] = useState<string | null>(null)
+  const [recheckingTags, setRecheckingTags] = useState(false)
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -48,6 +49,21 @@ export function Settings() {
       }
     })()
     return () => ctrl.abort()
+  }, [])
+
+  // Re-read the node/tag inventory and rebuild the dimension list, so tags
+  // applied to Edge nodes after this page opened appear without a full reload.
+  // getWorkers is no-store, so this always reflects the current tags.
+  const reloadTags = useCallback(async (): Promise<void> => {
+    setRecheckingTags(true)
+    try {
+      const workers = await getWorkers()
+      setIndex(buildTagIndex(workers))
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRecheckingTags(false)
+    }
   }, [])
 
   // Load Lake datasets for the data-source dropdown (mirrors the Setup Guide).
@@ -223,12 +239,22 @@ export function Settings() {
         <Card.Header>
           <Card.Title>Tag dimensions</Card.Title>
           <Card.Description>
-            Auto-discovered from node tags (info.cribl.tags). Choose which to expose in the dashboard.
+            Auto-discovered from node tags (info.cribl.tags). Tags must be in key:value form (for example
+            site:nyc) — the key becomes the dimension and the value is what you group and filter by. Plain tags with
+            no colon are ignored. Choose which dimensions to expose in the dashboard.
           </Card.Description>
         </Card.Header>
         <Card.Content>
+          <div className="save-bar">
+            <Button variant="secondary" disabled={recheckingTags} onClick={() => void reloadTags()}>
+              {recheckingTags ? 'Re-checking…' : 'Re-check tags'}
+            </Button>
+          </div>
           {discovered.length === 0 ? (
-            <Text color="subtle">No tagged nodes discovered yet.</Text>
+            <Text color="subtle">
+              No tagged nodes discovered yet. Apply key:value tags (for example site:nyc) to your Edge nodes, then
+              Re-check tags — plain tags with no colon are ignored.
+            </Text>
           ) : (
             <div className="dim-list">
               {discovered.map((dim) => (

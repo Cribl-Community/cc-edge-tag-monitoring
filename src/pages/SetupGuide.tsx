@@ -833,6 +833,12 @@ export function SetupGuide() {
             Stream Worker Group into a Lake dataset. Work through steps 1–4 below; the dashboard then sums bytes per host
             and rolls volume up by your node tags. Every action asks for confirmation and names the exact resource.
           </Text>
+          <Alert appearance="info" title="Tag your Edge nodes in key:value form">
+            The dashboard groups volume by your node tags, so each tag must be <code className="inline-code">key:value</code>{' '}
+            (for example <code className="inline-code">site:nyc</code> or <code className="inline-code">env:prod</code>) —
+            the key becomes the dimension and the value is what you group and filter by. Plain tags with no colon are
+            ignored. Apply tags per node (or per fleet) in Edge, then use “Re-check status”.
+          </Alert>
           <div className="setup-flow">
             <Pill appearance="info">Edge fleets (1+)</Pill>
             <span className="setup-arrow">→</span>

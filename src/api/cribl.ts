@@ -40,10 +40,16 @@ interface RequestOptions {
    * not a parsed JSON object (which becomes "[object Object]").
    */
   contentType?: string
+  /**
+   * Fetch cache mode. Defaults to the browser default. Set 'no-store' for reads
+   * that must reflect current server state on every call (e.g. the node/tag
+   * inventory), so a relaunch never serves a stale cached response.
+   */
+  cache?: RequestCache
 }
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, timeoutMs = 28_000, contentType } = opts
+  const { method = 'GET', body, signal, timeoutMs = 28_000, contentType, cache } = opts
   const url = `${API()}${path}`
 
   // Bound the request so a stuck proxy call never hangs the UI.
@@ -67,6 +73,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
       headers: outHeaders,
       body: outBody,
       signal: controller.signal,
+      ...(cache ? { cache } : {}),
     })
   } catch (err) {
     clearTimeout(timer)
@@ -150,7 +157,9 @@ export async function getStreamGroups(signal?: AbortSignal): Promise<Fleet[]> {
 
 /** All worker nodes, carrying hostname + custom tags for the host->tag join. */
 export async function getWorkers(signal?: AbortSignal): Promise<WorkerNode[]> {
-  const data = await request<Listed<WorkerNode>>('/master/workers', { signal })
+  // no-store: the node/tag inventory must reflect current state on every launch
+  // and re-check, so newly-applied tags are never masked by a cached response.
+  const data = await request<Listed<WorkerNode>>('/master/workers', { signal, cache: 'no-store' })
   return data.items ?? []
 }
 

@@ -29,6 +29,7 @@ export function Dashboard() {
   const [result, setResult] = useState<RollupResult | null>(null)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
+  const [recheckingTags, setRecheckingTags] = useState(false)
   const [dataVersion, setDataVersion] = useState(0)
   // Job id of the last completed search, so "Investigate in Cribl Search" can
   // deep-link to /search/<jobId> (a bare /search renders blank). Null while a
@@ -85,6 +86,23 @@ export function Dashboard() {
       void saveConfig(next).catch((err) => setInitError(describe(err)))
       return next
     })
+  }, [])
+
+  // Re-read the node/tag inventory from /master/workers and rebuild the tag
+  // index, so tags applied to Edge nodes after the dashboard opened surface
+  // without a full page reload. Fetch is no-store, so this always reflects the
+  // current tags. The dims memo picks up any newly-discovered dimensions.
+  const reloadTags = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    setRecheckingTags(true)
+    try {
+      const workers = await getWorkers(signal)
+      if (signal?.aborted) return
+      setIndex(buildTagIndex(workers))
+    } catch (err) {
+      if (!signal?.aborted) setSearchError(describe(err))
+    } finally {
+      if (!signal?.aborted) setRecheckingTags(false)
+    }
   }, [])
 
   // Group/filter are applied app-side, so changing them only re-rolls the last
@@ -170,8 +188,11 @@ export function Dashboard() {
         illustration="MissingSock"
         size="lg"
         title="No tagged Edge nodes found"
-        description="No custom tags were discovered on any Edge node (info.cribl.tags). Apply KEY:VALUE tags to your nodes, then reload."
+        description="No custom tags were discovered on any Edge node (info.cribl.tags). Tags must be in key:value form (for example site:nyc) — plain tags with no colon are ignored, since the dashboard groups by the key. Apply key:value tags to your nodes, then re-check."
       >
+        <Button variant="primary" disabled={recheckingTags} onClick={() => void reloadTags()}>
+          {recheckingTags ? 'Re-checking…' : 'Re-check for tags'}
+        </Button>
         <ButtonLink href="/setup" variant="secondary">
           How to tag nodes
         </ButtonLink>
@@ -218,13 +239,16 @@ export function Dashboard() {
           <div className="controls-action">
             <Button
               variant="secondary"
-              disabled={searching}
+              disabled={searching || recheckingTags}
               onClick={() => {
                 const ctrl = new AbortController()
+                // Re-check node tags (surface newly-applied tags) and re-run the
+                // volume search together, so one button refreshes both.
+                void reloadTags(ctrl.signal)
                 void runQuery(ctrl.signal)
               }}
             >
-              {searching ? 'Refreshing…' : 'Refresh'}
+              {searching || recheckingTags ? 'Refreshing…' : 'Refresh'}
             </Button>
             {searchUiUrl && (
               <ButtonLink

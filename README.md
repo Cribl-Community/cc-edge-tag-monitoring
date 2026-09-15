@@ -18,7 +18,8 @@ Install directly from the Cribl Marketplace (Organization administrators only):
 ## What it does
 
 1. **Groups volume by tag.** Rolls up Edge in/out bytes by any tag key on your
-   nodes (for example `site`, `env`, `team`), not just by fleet.
+   nodes (for example `site`, `env`, `team`), not just by fleet. Tags must be in
+   `key:value` form (see the requirement below).
 2. **Guided setup.** The **Setup Guide** provisions the required Cribl resources
    for you — a Cribl Internal metrics source, a relay destination, a Stream
    Worker Group route, and a Cribl Lake destination — one confirmed step at a
@@ -34,6 +35,17 @@ Install directly from the Cribl Marketplace (Organization administrators only):
    events for tag-aware querying.
 7. **Jump to Cribl Search.** Open the underlying query in the Cribl Search UI
    straight from the Dashboard.
+
+### Requirement: tags must be `key:value`
+
+> **Node tags must be in `key:value` form** (for example `site:nyc`, `env:prod`,
+> `team:payments`). The app groups and filters by the **key**, so the colon is
+> required: the part before the `:` becomes the dimension and the part after is
+> the value. **Plain tags with no colon are silently ignored** — a node tagged
+> only `production` (no colon) contributes no dimension and won't appear in any
+> grouping. If the Dashboard shows "No tagged Edge nodes found," re-tag your
+> nodes in `key:value` form and use **Re-check for tags** (or the **Refresh**
+> button), which re-reads the node inventory without a full reload.
 
 ### How it works
 
@@ -74,6 +86,7 @@ Package a release artifact locally with `npm run package -- --version "1.0.0"`
 
 | Version | Changes |
 |---------|---------|
+| 1.0.4   | Make the `key:value` tag requirement explicit (plain tags are ignored) across the README, Dashboard, Settings, and Setup Guide; re-check node tags on every launch (`no-store` worker fetch) and add on-demand "Re-check for tags" / "Re-check tags" controls so newly-applied tags surface without a full reload. |
 | 1.0.3   | Documentation: install via the Cribl Marketplace (replaces Import from Git). |
 | 1.0.0   | Initial release: tag-grouped Edge volume dashboard, guided multi-fleet setup, configurable dimensions, optional throughput-only filtering and tag baking, and Cribl Search deep links. |
 
