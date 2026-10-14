@@ -15,17 +15,19 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   Alert,
   Button,
-  Card,
-  Checkbox,
   Collapse,
+  EmptyState,
   Modal,
   Pill,
   SelectField,
   Spinner,
+  Switch,
   Tag,
   Text,
   TextField,
 } from '@capra/core'
+import { HelpPopover } from '../components/HelpPopover'
+import { StepRow } from '../components/StepRow'
 import {
   apiBaseUrl,
   upsertRoute,
@@ -80,8 +82,24 @@ const METRICS_ROLLUP_PIPELINE = 'cribl_metrics_rollup'
 const ROUTE_TABLE = 'default'
 const HTTP_PORT = 10200
 const TCP_PORT = 10300
-// Internal metrics arrive from the built-in Cribl Internal source; match by its input id.
-const INPUT_MATCH = `__inputId.startsWith('cribl:') || __inputId.startsWith('criblmetrics:')`
+// Internal metrics arrive from the built-in Cribl Internal source; match by its
+// input id, which Cribl stamps as "<type>:<id>". Both hops filter on the same
+// prefixes, so build the two expressions from one place.
+const INTERNAL_INPUT_PREFIXES = ['cribl:', 'criblmetrics:']
+function internalInputMatch(field: string): string {
+  return INTERNAL_INPUT_PREFIXES.map((p) => `${field}.startsWith('${p}')`).join(' || ')
+}
+// Edge side: the live __inputId on the fleet that produced the event.
+const INPUT_MATCH = internalInputMatch('__inputId')
+// Stream side: the relayed copy of that id. A Cribl HTTP/TCP source nests the
+// sender's internal fields under __forwardedAttrs (copied, not moved — see
+// docs.cribl.io "Internal Fields" for the Cribl HTTP/TCP sources), so the route
+// matches on the ORIGINATING Edge source rather than on the relay destination
+// id. That makes it independent of what the Edge destination is called, at the
+// cost of also catching internal metrics relayed in by destinations this app
+// didn't create. Guarded: events that didn't arrive over a relay have no
+// __forwardedAttrs at all.
+const STREAM_FILTER = `__forwardedAttrs && typeof __forwardedAttrs.__inputId === 'string' && (${internalInputMatch('__forwardedAttrs.__inputId')})`
 // Stable empty-array fallback for config.edgeFleets so its reference doesn't change
 // every render (keeps detectEdge / the addable-fleets memo from re-firing needlessly).
 const NO_FLEETS: string[] = []
@@ -252,6 +270,9 @@ interface StreamReadiness {
 
 type Outcome = { kind: 'ok' | 'err'; message: string }
 
+/** Collapsible sections of the guide. One is open at a time (see `expanded`). */
+type SectionId = 'how' | 'dataset' | 'stream' | 'edge' | 'verify' | 'conn'
+
 export function SetupGuide() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [fleets, setFleets] = useState<Fleet[]>([])
@@ -272,6 +293,13 @@ export function SetupGuide() {
   const [sample, setSample] = useState<Record<string, unknown>[] | null>(null)
   const [verifying, setVerifying] = useState(false)
   const [verifyError, setVerifyError] = useState<string | null>(null)
+
+  // Accordion: exactly one section open at a time. Until the reader touches a
+  // header, the open section is DERIVED from readiness (the first incomplete
+  // one), so the guide opens on the next thing to do and advances by itself as
+  // steps complete. The first header click pins the choice from then on — see
+  // `expanded` below. Deriving rather than syncing avoids a setState-in-effect.
+  const [pinnedSection, setPinnedSection] = useState<{ id: SectionId | null } | null>(null)
 
   // Load config + edge fleets + stream groups + workers once.
   useEffect(() => {
@@ -327,10 +355,10 @@ export function SetupGuide() {
     () => buildRouteFilter(config?.fieldMapping.metricNameField ?? '_metric', throughputOnly),
     [config?.fieldMapping.metricNameField, throughputOnly],
   )
-  // Match events forwarded from the Edge relay destination. Cribl stamps the
-  // sending output's id onto __forwardedAttrs.__outputId as "<type>:<id>", so
-  // this follows the (possibly renamed) Edge destination id.
-  const streamFilter = `__forwardedAttrs.__outputId=='${transport}:${relayDestId}'`
+  // Match relayed internal-metrics events by their originating Edge input id
+  // (see STREAM_FILTER). Fixed — it depends on neither the transport nor the
+  // relay destination id.
+  const streamFilter = STREAM_FILTER
 
   // Persist a config patch immediately (KV write only — never volatile Cribl config).
   const patchConfig = (partial: Partial<AppConfig>): void => {
@@ -481,7 +509,8 @@ export function SetupGuide() {
     setOutcome(null)
     Modal.warning({
       title,
-      content,
+      // Wrap plain-string bodies so long resource ids can break (see ConfirmBody).
+      content: typeof content === 'string' ? <ConfirmBody text={content} /> : content,
       confirmButtonText: confirmLabel,
       cancelButtonText: 'Cancel',
       onConfirm: async () => {
@@ -582,7 +611,10 @@ export function SetupGuide() {
     if (!streamGroup) return
     runConfirmed(
       `Add relay → Lake route on ${streamGroup}`,
-      `This adds route "${STREAM_ROUTE}" to table "${ROUTE_TABLE}" on Stream group "${streamGroup}", just above the default route, sending data from the relay source to "${LAKE_DEST_ID}" via the built-in passthru pipeline. Filter: ${streamFilter}`,
+      <ConfirmBody
+        text={`This adds route "${STREAM_ROUTE}" to table "${ROUTE_TABLE}" on Stream group "${streamGroup}", just above the default route, sending data from the relay source to "${LAKE_DEST_ID}" via the built-in passthru pipeline.`}
+        code={[{ label: 'Filter', value: streamFilter }]}
+      />,
       'Add route',
       async () => {
         await upsertRoute(streamGroup, ROUTE_TABLE, {
@@ -649,7 +681,10 @@ export function SetupGuide() {
     const target = transport === 'cribl_http' ? relayEndpoint : `${relayEndpoint}:${relayPort}`
     runConfirmed(
       `Create ${transportLabel(transport)} destination on ${fleet}`,
-      `This creates a ${transportLabel(transport)} destination "${relayDestId}" on fleet "${fleet}" sending to ${target} (the "${streamGroup}" Stream group).`,
+      <ConfirmBody
+        text={`This creates a ${transportLabel(transport)} destination "${relayDestId}" on fleet "${fleet}", sending to the "${streamGroup}" Stream group.`}
+        code={[{ label: transport === 'cribl_http' ? 'Endpoint URL' : 'Host:port', value: target }]}
+      />,
       'Create destination',
       async () => {
         await createOutput(fleet, body)
@@ -714,7 +749,10 @@ export function SetupGuide() {
         : ''
     runConfirmed(
       `Add route on ${fleet}`,
-      `This adds route "${EDGE_ROUTE}" to the "${ROUTE_TABLE}" routing table on fleet "${fleet}", just above the default route, sending ${throughputOnly ? 'throughput (byte) metrics only' : 'all internal metrics'} to "${relayDestId}" via ${via}. Filter: ${routeFilter}${srcNote}`,
+      <ConfirmBody
+        text={`This adds route "${EDGE_ROUTE}" to the "${ROUTE_TABLE}" routing table on fleet "${fleet}", just above the default route, sending ${throughputOnly ? 'throughput (byte) metrics only' : 'all internal metrics'} to "${relayDestId}" via ${via}.${srcNote}`}
+        code={[{ label: 'Filter', value: routeFilter }]}
+      />,
       'Add route',
       async () => {
         if (useEnrich) await upsertPipeline(fleet, buildEnrichPipeline())
@@ -820,43 +858,84 @@ export function SetupGuide() {
       : `${edgeReadyCount}/${edgeFleets.length} ready`
   const edgeStatusKind: 'ready' | 'todo' | 'unknown' =
     edgeFleets.length === 0 ? 'unknown' : edgeReadyCount === edgeFleets.length ? 'ready' : 'todo'
+  const dataFlowing = sample != null && sample.length > 0
+
+  // The next thing to do, and the section that holds it. Drives both the status
+  // strip's "Next" line and which section starts open.
+  const next: { section: SectionId; label: string } | null = !dataset
+    ? { section: 'dataset', label: 'choose or create the Lake dataset metrics land in' }
+    : streamStatus !== 'ready'
+      ? {
+          section: 'stream',
+          label: streamGroup
+            ? `finish setting up Stream group “${streamGroup}”`
+            : 'pick the Stream Worker Group that receives Edge data',
+        }
+      : edgeFleets.length === 0
+        ? { section: 'edge', label: 'add the Edge fleets to monitor' }
+        : edgeStatusKind !== 'ready'
+          ? {
+              section: 'edge',
+              label: `finish ${edgeFleets.length - edgeReadyCount} of ${edgeFleets.length} Edge ${
+                edgeFleets.length - edgeReadyCount === 1 ? 'fleet' : 'fleets'
+              }`,
+            }
+          : !dataFlowing
+            ? { section: 'verify', label: 'verify data is landing and check the field names' }
+            : null
+
+  // Pinned choice wins once the reader has clicked a header; before that, follow
+  // the guide's own sense of what's next.
+  const expanded: SectionId | null = pinnedSection ? pinnedSection.id : next?.section ?? null
+  const section = (id: SectionId) => ({
+    isExpanded: expanded === id,
+    onExpandedChange: (open: boolean) => setPinnedSection({ id: open ? id : null }),
+  })
+
+  // Tag health: the dashboard groups volume by key:value node tags, so no
+  // discovered dimensions means nothing to group by. Only warn when we have
+  // nodes to look at — otherwise the explanation lives in "How this works".
+  const monitoredWorkers = workers.filter((w) => edgeFleets.includes(w.group ?? ''))
+  const tagsMissing = monitoredWorkers.length > 0 && buildTagIndex(monitoredWorkers).dimensions.size === 0
 
   return (
     <div className="page">
-      <Card>
-        <Card.Header>
-          <Card.Title>How this works</Card.Title>
-        </Card.Header>
-        <Card.Content>
-          <Text>
-            Edge can’t write to Cribl Lake directly, so this guide relays each fleet’s internal byte metrics through a
-            Stream Worker Group into a Lake dataset. Work through steps 1–4 below; the dashboard then sums bytes per host
-            and rolls volume up by your node tags. Every action asks for confirmation and names the exact resource.
-          </Text>
-          <Alert appearance="info" title="Tag your Edge nodes in key:value form">
-            The dashboard groups volume by your node tags, so each tag must be <code className="inline-code">key:value</code>{' '}
-            (for example <code className="inline-code">site:nyc</code> or <code className="inline-code">env:prod</code>) —
-            the key becomes the dimension and the value is what you group and filter by. Plain tags with no colon are
-            ignored. Apply tags per node (or per fleet) in Edge, then use “Re-check status”.
-          </Alert>
-          <div className="setup-flow">
-            <Pill appearance="info">Edge fleets (1+)</Pill>
-            <span className="setup-arrow">→</span>
-            <Pill appearance="info">{transportLabel(transport)}</Pill>
-            <span className="setup-arrow">→</span>
-            <Pill appearance="info">Stream Worker Group</Pill>
-            <span className="setup-arrow">→</span>
-            <Pill appearance="info">Cribl Lake</Pill>
-            <span className="setup-arrow">→</span>
-            <Pill appearance="highlight">Search + tag roll-up</Pill>
+      <div className="setup-status">
+        <div className="setup-status-row">
+          <div className="setup-status-chips">
+            <StatusChip label="Dataset" status={dataset ? 'ready' : 'todo'} value={dataset || 'Not set'} />
+            <StatusChip label="Stream" status={streamStatus} value={streamStatusLabel} />
+            <StatusChip label="Fleets" status={edgeStatusKind} value={edgeStatusLabel} />
+            <StatusChip
+              label="Data"
+              status={dataFlowing ? 'ready' : 'unknown'}
+              value={dataFlowing ? 'Flowing' : 'Not verified'}
+            />
           </div>
-          <div className="setup-recheck">
+          <div className="setup-status-action">
             <Button variant="secondary" disabled={checking} onClick={() => void refresh()}>
               {checking ? 'Checking…' : 'Re-check status'}
             </Button>
           </div>
-        </Card.Content>
-      </Card>
+        </div>
+        <div className="setup-status-next">
+          {next ? (
+            <>
+              <Text variant="body-sm-semibold">Next:</Text>
+              <Text color="subtle" variant="body-sm-normal">
+                {next.label}
+              </Text>
+              <Button variant="tertiary" size="sm" onClick={() => setPinnedSection({ id: next.section })}>
+                Open
+              </Button>
+            </>
+          ) : (
+            <Text color="success" variant="body-sm-semibold">
+              Setup complete — data is landing in “{dataset}”.
+            </Text>
+          )}
+        </div>
+      </div>
 
       {outcome && (
         <Alert
@@ -868,66 +947,45 @@ export function SetupGuide() {
         </Alert>
       )}
 
-      <Collapse
-        title="Connection settings"
-        defaultExpanded={false}
-        headerTrailingContentSlot={
-          <Pill appearance="info" variant="muted">
-            {`${transportLabel(transport)} · port ${relayPort}`}
-          </Pill>
-        }
-      >
+      {tagsMissing && (
+        <Alert appearance="warning" title="No key:value tags found on the monitored nodes">
+          The dashboard groups volume by node tags, so each tag must be{' '}
+          <code className="inline-code">key:value</code> (for example <code className="inline-code">site:nyc</code>).
+          Plain tags with no colon are ignored. Tag the nodes in Edge, then Re-check status.
+        </Alert>
+      )}
+
+      <Collapse title="How this works" {...section('how')}>
         <div className="section-stack">
-        <Text color="subtle" variant="body-sm-normal">
-          How Edge sends data to the Stream group. Defaults (Cribl HTTP, port 10200) work for most Cribl.Cloud orgs and
-          the endpoint auto-fills — open this only to change transport, port, or the shared destination id.
-        </Text>
-        <div className="field-grid">
-          <SelectField
-            label="Transport"
-            value={transport}
-            items={TRANSPORT_ITEMS}
-            onChange={(v) => v != null && onTransport(v as RelayTransport)}
-          />
-          <TextField
-            label="Port"
-            value={String(relayPort)}
-            onChange={onPort}
-            helperText={`Default ${defaultPort(transport)} for ${transportLabel(transport)}. Must match on the Stream source and every Edge destination.`}
-          />
-          <TextField
-            label="Edge destination ID"
-            value={config?.relayDestId ?? ''}
-            onChange={(v) => patchConfig({ relayDestId: v })}
-            placeholder={EDGE_RELAY_ID}
-            helperText={`Shared by every monitored fleet, so the single Stream route (matching __forwardedAttrs.__outputId=='${transport}:${relayDestId}') catches them all. Change it here if you renamed it in Cribl.`}
-          />
-          <TextField
-            label={transport === 'cribl_http' ? 'Stream endpoint URL (shared)' : 'Stream receiver host (shared)'}
-            value={config?.relayEndpoint ?? ''}
-            onChange={(v) => patchConfig({ relayEndpoint: v })}
-            helperText={
-              transport === 'cribl_http'
-                ? `e.g. https://<worker-host>:${relayPort}. Auto-filled from the Stream group when possible — edit if needed.`
-                : 'Hostname of a Stream worker. Auto-filled when possible — edit if needed.'
-            }
-          />
-        </div>
-        {suggested.isCloud && (
-          <Alert appearance="info" title="Cribl.Cloud ingest endpoint">
-            Auto-derived from your org URL and the selected Worker Group “{streamGroup}”
-            (<code className="inline-code">&lt;group&gt;.&lt;workspace&gt;.&lt;org&gt;.&lt;domain&gt;</code>). It updates
-            if you change the group or port. Confirm the port matches the {transportLabel(transport)} source (default
-            10200), and edit above if your ingest address differs.
-          </Alert>
-        )}
+          <Text color="subtle" variant="body-sm-normal">
+            Edge can’t write to Cribl Lake directly, so this guide relays each fleet’s internal byte metrics through a
+            Stream Worker Group into a Lake dataset. The dashboard then sums bytes per host and rolls volume up by your
+            node tags. Every action below asks for confirmation and names the exact resource it touches.
+          </Text>
+          <div className="setup-flow">
+            <Pill appearance="info">Edge fleets (1+)</Pill>
+            <span className="setup-arrow">→</span>
+            <Pill appearance="info">{transportLabel(transport)}</Pill>
+            <span className="setup-arrow">→</span>
+            <Pill appearance="info">Stream Worker Group</Pill>
+            <span className="setup-arrow">→</span>
+            <Pill appearance="info">Cribl Lake</Pill>
+            <span className="setup-arrow">→</span>
+            <Pill appearance="highlight">Search + tag roll-up</Pill>
+          </div>
+          <Text color="subtle" variant="body-sm-normal">
+            Volume is grouped by your node tags, so each tag must be <code className="inline-code">key:value</code> (for
+            example <code className="inline-code">site:nyc</code> or <code className="inline-code">env:prod</code>) — the
+            key becomes the dimension, the value is what you group and filter by. Plain tags with no colon are ignored.
+            Apply them per node or per fleet in Edge, then Re-check status.
+          </Text>
         </div>
       </Collapse>
 
       {config && (
         <Collapse
           title="Step 1 · Lake dataset"
-          defaultExpanded
+          {...section('dataset')}
           headerTrailingContentSlot={
             <SectionStatus status={dataset ? 'ready' : 'todo'} label={dataset || 'Not set'} />
           }
@@ -943,14 +1001,10 @@ export function SetupGuide() {
       ) : (
         <Collapse
           title="Step 2 · Stream Worker Group (receiver)"
-          defaultExpanded
+          {...section('stream')}
           headerTrailingContentSlot={<SectionStatus status={streamStatus} label={streamStatusLabel} />}
         >
           <div className="section-stack">
-          <Text color="subtle" variant="body-sm-normal">
-            Set up the group that receives Edge data and writes it to Lake. Provision this first so the Edge destination
-            has an endpoint to send to.
-          </Text>
           <div className="controls">
             <SelectField
               label="Stream Worker Group"
@@ -960,17 +1014,28 @@ export function SetupGuide() {
             />
           </div>
 
-          <div className="setup-steps">
+          <div className="step-list">
               <StepRow
                 n={1}
                 title={`${transportLabel(transport)} source`}
                 status={stream ? (stream.sourceEnabled ? 'ready' : 'missing') : 'unknown'}
-                detail={
+                summary={
                   stream?.source
                     ? stream.sourceEnabled
                       ? `Source "${stream.source.id}" (type "${stream.source.type}") is enabled.`
                       : `Source "${stream.source.id}" exists but is disabled — enable it to receive data.`
                     : `Creates source "${STREAM_SRC_ID}" listening on 0.0.0.0:${relayPort}.`
+                }
+                help={
+                  <>
+                    <Text variant="body-sm-normal">
+                      Every monitored Edge fleet sends to this one source, so there’s nothing to repeat per fleet.
+                    </Text>
+                    <Text variant="body-sm-normal">
+                      Its port ({relayPort}) must match the port on each fleet’s forwarding destination — both come from
+                      Connection settings.
+                    </Text>
+                  </>
                 }
                 action={
                   <Button
@@ -987,10 +1052,22 @@ export function SetupGuide() {
                 n={2}
                 title="Cribl Lake destination"
                 status={stream ? (stream.hasLakeDest ? 'ready' : 'missing') : 'unknown'}
-                detail={
+                summary={
                   stream?.hasLakeDest
                     ? `Destination "${LAKE_DEST_ID}" → dataset "${stream.lakeDataset ?? ''}"`
                     : `Destination "${LAKE_DEST_ID}" → dataset "${dataset || '(choose above)'}"`
+                }
+                help={
+                  <>
+                    <Text variant="body-sm-normal">
+                      Only Stream Worker Groups can write to Cribl Lake — Edge gets an HTTP 405 — which is the whole
+                      reason data relays through this group.
+                    </Text>
+                    <Text variant="body-sm-normal">
+                      If your Lake storage location id differs from “{LAKE_ID}”, edit the destination in Stream after
+                      creating it.
+                    </Text>
+                  </>
                 }
                 action={
                   <Button
@@ -1007,19 +1084,27 @@ export function SetupGuide() {
                 n={3}
                 title="Route relay → Lake"
                 status="unknown"
-                detail={
+                summary={`Route “${STREAM_ROUTE}” sends relayed internal metrics to “${LAKE_DEST_ID}” via the passthru pipeline.`}
+                caution="Added above existing routes with “final” set — adjust it if this group already forwards these metrics."
+                help={
                   <>
-                    <Text color="subtle" variant="body-sm-normal">
-                      Route “{STREAM_ROUTE}” on table “{ROUTE_TABLE}” sends events forwarded from the Edge destination “
-                      {relayDestId}” to “{LAKE_DEST_ID}” via the built-in{' '}
-                      <code className="inline-code">passthru</code> pipeline. Filter:{' '}
-                      <code className="inline-code">{streamFilter}</code>
+                    <Text variant="body-sm-normal">
+                      Added to table “{ROUTE_TABLE}” just above the default route. It matches on the originating Edge
+                      source id, carried over in <code className="inline-code">__forwardedAttrs</code>, so it keeps
+                      working whatever the Edge destination “{relayDestId}” is called.
                     </Text>
-                    <Alert appearance="info" title="Already routing these metrics elsewhere?">
-                      If this Worker Group already sends the same metrics to other destinations, move the “{STREAM_ROUTE}”
-                      route <em>above</em> those routes and clear its <code className="inline-code">final</code> flag (mark
-                      it not final) so events continue on to the existing routes after being copied to Lake.
-                    </Alert>
+                    <pre className="code-block">{streamFilter}</pre>
+                    <Text variant="body-sm-semibold">Already sending these metrics somewhere?</Text>
+                    <Text variant="body-sm-normal">
+                      The route carries <code className="inline-code">final</code>, so matched events stop here. If this
+                      group already forwards the same metrics to other destinations, keep “{STREAM_ROUTE}”{' '}
+                      <em>above</em> them but clear its <code className="inline-code">final</code> flag, so events
+                      continue on after being copied to Lake.
+                    </Text>
+                    <Text variant="body-sm-normal">
+                      Note the filter matches relayed internal metrics from <em>any</em> Edge relay into this group, not
+                      only the fleets configured here — narrow it in Cribl if that’s too broad.
+                    </Text>
                   </>
                 }
                 action={
@@ -1032,7 +1117,13 @@ export function SetupGuide() {
                 n={4}
                 title="Commit & deploy the group"
                 status="unknown"
-                detail="Commit pending changes and deploy them to the Stream group's workers."
+                summary="Commit pending changes and deploy them to the Stream group's workers."
+                help={
+                  <Text variant="body-sm-normal">
+                    Routes and deploys can’t be auto-detected by this app, so these two steps never show a status —
+                    re-running either one is always safe if you’re not sure.
+                  </Text>
+                }
                 action={
                   <Button variant="secondary" pending={busy === 'stream-deploy'} disabled={!streamGroup} onClick={deployStream}>
                     Commit & deploy
@@ -1051,31 +1142,42 @@ export function SetupGuide() {
       ) : (
         <Collapse
           title="Step 3 · Edge fleets (senders)"
-          defaultExpanded
+          {...section('edge')}
           headerTrailingContentSlot={<SectionStatus status={edgeStatusKind} label={edgeStatusLabel} />}
         >
           <div className="section-stack">
-          <Text color="subtle" variant="body-sm-normal">
-            Add each Edge fleet that should relay volume into the Stream group above. Every fleet gets a destination with
-            the same id (“{relayDestId}”) and the shared endpoint (in Connection settings), so the single Stream route
-            receives them all — no extra route per fleet. Each button asks for confirmation and names the exact resource.
-          </Text>
+            <div className="setup-status-next">
+              <Text color="subtle" variant="body-sm-normal">
+                Add each Edge fleet that should relay volume into “{streamGroup || 'the Stream group'}”.
+              </Text>
+              <HelpPopover label="About Edge fleets">
+                <Text variant="body-sm-normal">
+                  Every fleet gets a forwarding destination with the same id (“{relayDestId}”) and the shared endpoint
+                  from Connection settings, so the single Stream route receives them all — no extra route per fleet.
+                </Text>
+                <Text variant="body-sm-normal">
+                  Removing a fleet here only stops tracking it; it never deletes anything in Cribl. Each button asks for
+                  confirmation and names the exact resource it touches.
+                </Text>
+              </HelpPopover>
+            </div>
 
             <div className="panel">
               <Text variant="body-sm-semibold">Monitored fleets</Text>
               {edgeFleets.length === 0 ? (
-                <Text color="subtle" variant="body-sm-normal">
-                  No fleets added yet. Add one below — it’ll be tracked here and you can configure its steps.
-                </Text>
+                <EmptyState
+                  title="No fleets added yet"
+                  description="Add one below — it'll be tracked here and you can configure its steps."
+                />
               ) : (
-                <div className="setup-steps">
+                <div className="step-list">
                   {edgeFleets.map((id) => {
                     const st = edgeStatus[id]
                     const active = id === fleet
                     return (
-                      <div key={id} className="setup-step">
-                        <div className="setup-step-body">
-                          <div className="setup-step-head">
+                      <div key={id} className="step-row">
+                        <div className="step-row-body">
+                          <div className="step-row-head">
                             <Text variant="body-sm-semibold">{id}</Text>
                             {active && <Pill appearance="highlight" variant="muted">Configuring</Pill>}
                             <Pill appearance={st?.sourceEnabled ? 'success' : 'warning'} variant="muted">
@@ -1087,11 +1189,11 @@ export function SetupGuide() {
                             {st?.enrichEnabled && <Pill appearance="info" variant="muted">Baking tags</Pill>}
                           </div>
                         </div>
-                        <div className="setup-step-action">
+                        <div className="step-row-action">
                           <Button variant={active ? 'primary' : 'secondary'} disabled={active} onClick={() => selectFleet(id)}>
                             {active ? 'Configuring' : 'Configure'}
                           </Button>
-                          <Button variant="secondary" onClick={() => removeFleet(id)}>
+                          <Button variant="tertiary" onClick={() => removeFleet(id)}>
                             Remove
                           </Button>
                         </div>
@@ -1118,17 +1220,24 @@ export function SetupGuide() {
                 Configuring: {fleet}
               </Text>
             )}
-            <div className="setup-steps">
+            <div className="step-list">
               <StepRow
                 n={1}
                 title="Cribl Internal metrics source"
                 status={edge ? (edge.sourceEnabled ? 'ready' : 'missing') : 'unknown'}
-                detail={
+                summary={
                   edge?.source
                     ? edge.sourceEnabled
                       ? `Built-in source "${edge.source.id}" (type "${edge.source.type}") is enabled.`
                       : `Built-in source "${edge.source.id}" exists but is disabled — enable it to emit metrics.`
-                    : 'Built-in Cribl Internal source — detected automatically. It cannot be created via API; enable it in the fleet if missing.'
+                    : 'Built-in Cribl Internal source — detected automatically.'
+                }
+                help={
+                  <Text variant="body-sm-normal">
+                    This source is built in and can’t be created through the API. If it isn’t detected, open the fleet
+                    in Cribl → Sources → Cribl Internal and enable it there, then Re-check status. It’s what emits the
+                    per-host byte counts the dashboard sums.
+                  </Text>
                 }
                 action={
                   <Button variant="primary" pending={busy === 'edge-src'} disabled={edge?.sourceEnabled} onClick={enableSource}>
@@ -1140,12 +1249,19 @@ export function SetupGuide() {
                 n={2}
                 title={`${transportLabel(transport)} destination → Stream`}
                 status={edge ? (edge.hasRelay ? 'ready' : 'missing') : 'unknown'}
-                detail={
+                summary={
                   edge?.hasRelay
                     ? `Destination "${relayDestId}" exists.`
                     : relayEndpoint
                       ? `Destination "${relayDestId}" → ${transport === 'cribl_http' ? relayEndpoint : `${relayEndpoint}:${relayPort}`}`
                       : 'Set the Stream endpoint in Connection settings to enable this.'
+                }
+                help={
+                  <Text variant="body-sm-normal">
+                    Creates the forwarding destination on “{fleet}” pointing at the Stream group’s{' '}
+                    {transportLabel(transport)} source. The id is shared across fleets so this guide can detect each
+                    one; the endpoint and port come from Connection settings.
+                  </Text>
                 }
                 action={
                   <Button
@@ -1162,11 +1278,23 @@ export function SetupGuide() {
                 n={3}
                 title="Route metrics to the relay"
                 status="unknown"
-                detail={
-                  <Text color="subtle" variant="body-sm-normal">
-                    Route “{EDGE_ROUTE}” on “{ROUTE_TABLE}” → “{relayDestId}” via the{' '}
-                    <code className="inline-code">passthru</code> pipeline.
-                  </Text>
+                summary={`Route “${EDGE_ROUTE}” on “${ROUTE_TABLE}” → “${relayDestId}” via the passthru pipeline.`}
+                caution="Inserted above existing routes with “final” set — adjust it if this fleet already routes internal metrics."
+                help={
+                  <>
+                    <Text variant="body-sm-semibold">Already sending these metrics somewhere?</Text>
+                    <Text variant="body-sm-normal">
+                      The route goes in above the fleet’s existing routes and carries{' '}
+                      <code className="inline-code">final</code>, so matched metrics go only to the relay. If this fleet
+                      already routes internal metrics to another destination, clear the{' '}
+                      <code className="inline-code">final</code> flag on “{EDGE_ROUTE}” in Cribl so those routes keep
+                      receiving them.
+                    </Text>
+                    <Text variant="body-sm-normal">
+                      What it matches depends on the volume setting below:
+                    </Text>
+                    <pre className="code-block">{routeFilter}</pre>
+                  </>
                 }
                 action={
                   <Button variant="secondary" pending={busy === 'edge-route'} disabled={!fleet} onClick={addEdgeRoute}>
@@ -1180,56 +1308,77 @@ export function SetupGuide() {
               <Collapse title="Optional: reduce volume & tag attribution" defaultExpanded={false}>
                 <div className="setup-optional-body">
                   <div className="setup-optional-row">
-                    <Text variant="body-sm-semibold">Reduce volume</Text>
-                    <Text color="subtle" variant="body-sm-normal">
-                      Shared config: shapes the route created on <em>every</em> monitored Edge fleet. Re-run the route
-                      step (3) on each fleet after changing it.
-                    </Text>
-                    <Checkbox
-                      checked={throughputOnly}
-                      onChange={(e) => setThroughputOnly((e.target as HTMLInputElement).checked)}
-                    >
-                      Route throughput (byte) metrics only — fewer credits
-                    </Checkbox>
+                    <div className="toggle-row">
+                      <Switch
+                        aria-label="Route throughput metrics only"
+                        checked={throughputOnly}
+                        onChange={(e) => setThroughputOnly((e.target as HTMLInputElement).checked)}
+                      />
+                      <Text variant="body-sm-semibold">Throughput metrics only</Text>
+                      <HelpPopover label="About reducing volume">
+                        <Text variant="body-sm-normal">
+                          Shared config: it shapes the route created on <em>every</em> monitored fleet, so re-run step 3
+                          on each fleet after changing it.
+                        </Text>
+                        <Text variant="body-sm-normal">
+                          On, only the byte metrics the dashboard sums are sent and the rest (CPU, memory, event counts)
+                          are dropped. Off, the full internal-metrics stream is sent — more data, more credits.
+                        </Text>
+                        <pre className="code-block">{routeFilter}</pre>
+                        <Text variant="body-sm-normal">
+                          The Cribl Internal source ships with a{' '}
+                          <code className="inline-code">{METRICS_ROLLUP_PIPELINE}</code> pre-processing pipeline that
+                          already aggregates metrics into time windows, so the relay route just passes them through — no
+                          extra rollup needed. Baking tags below removes that rollup.
+                        </Text>
+                      </HelpPopover>
+                    </div>
                     <Text color="subtle" variant="body-sm-normal">
                       {throughputOnly
-                        ? 'Only the byte metrics the dashboard sums are sent; other internal metrics (CPU, memory, event counts) are dropped.'
-                        : 'The full internal-metrics stream is sent — more data, more credits.'}{' '}
-                      Filter: <code className="inline-code">{routeFilter}</code>
-                    </Text>
-                    <Text color="subtle" variant="body-sm-normal">
-                      The Cribl Internal source ships with a{' '}
-                      <code className="inline-code">{METRICS_ROLLUP_PIPELINE}</code> pre-processing pipeline that
-                      aggregates metrics into time windows, so the relay route just passes them through — no extra rollup
-                      needed. (Baking node tags below removes that rollup; see the note there.)
+                        ? 'Only the byte metrics the dashboard sums are relayed — fewer credits.'
+                        : 'The full internal-metrics stream is relayed — more data, more credits.'}
                     </Text>
                   </div>
 
                   <div className="setup-optional-row">
-                    <Text variant="body-sm-semibold">Bake node tags into events</Text>
-                    <Checkbox
-                      checked={bakeTags}
-                      onChange={(e) => patchConfig({ bakeTags: (e.target as HTMLInputElement).checked })}
-                    >
-                      Stamp each node’s tags onto its events (point-in-time attribution)
-                    </Checkbox>
+                    <div className="toggle-row">
+                      <Switch
+                        aria-label="Bake node tags into events"
+                        checked={bakeTags}
+                        onChange={(e) => patchConfig({ bakeTags: (e.target as HTMLInputElement).checked })}
+                      />
+                      <Text variant="body-sm-semibold">Bake node tags into events</Text>
+                      <HelpPopover label="About baking node tags">
+                        <Text variant="body-sm-normal">
+                          By default the dashboard joins host → tags live from the node inventory, so it always reflects
+                          current tags. Baking writes each tag into a like-named field at emit time, which survives later
+                          tag changes or node removal and lets you group on the fields directly.
+                        </Text>
+                        <Text variant="body-sm-normal">
+                          {fleetTagKeys.length > 0
+                            ? `Fields added on this fleet: ${fleetTagKeys.join(', ')}.`
+                            : 'No node tags discovered on this fleet yet — the pipeline is generic, so baking still applies and captures each node’s tags at runtime as they appear.'}
+                        </Text>
+                        <Text variant="body-sm-normal">
+                          It takes <strong>two</strong> config changes, both handled by the button:{' '}
+                          <strong>(1)</strong> the source’s default{' '}
+                          <code className="inline-code">{METRICS_ROLLUP_PIPELINE}</code> pre-processing pipeline is{' '}
+                          <strong>removed</strong> — it rolls metrics up but strips the{' '}
+                          <code className="inline-code">__metadata.cribl.tags</code> the fields come from, so tags can’t
+                          be baked while it runs; and <strong>(2)</strong> the{' '}
+                          <code className="inline-code">{EDGE_ENRICH_PIPELINE}</code> pipeline is set on the relay route
+                          to add the fields. Stopping baking reverses both.
+                        </Text>
+                        <Text variant="body-sm-normal">
+                          Tags only reach events if the fleet collects node metadata: Fleet Settings → Limits → Metadata
+                          → include <code className="inline-code">cribl</code>. Use Verify to confirm the fields land.
+                        </Text>
+                      </HelpPopover>
+                    </div>
                     <Text color="subtle" variant="body-sm-normal">
-                      By default the dashboard joins host → tags live from the node inventory, so it always reflects
-                      current tags. Baking writes each tag into a like-named field at emit time, which survives later tag
-                      changes or node removal and lets you group on the fields directly.{' '}
-                      {fleetTagKeys.length > 0
-                        ? `Fields added on this fleet: ${fleetTagKeys.join(', ')}.`
-                        : 'No node tags discovered on this fleet yet — the pipeline is generic, so baking still applies and captures each node’s tags at runtime as they appear (enable fleet metadata collection below, then Re-check to preview the field names).'}
-                    </Text>
-                    <Text color="subtle" variant="body-sm-normal">
-                      This takes <strong>two</strong> config changes, both handled by the button below:{' '}
-                      <strong>(1)</strong> the source&apos;s default{' '}
-                      <code className="inline-code">{METRICS_ROLLUP_PIPELINE}</code> pre-processing pipeline is{' '}
-                      <strong>removed</strong> — it rolls metrics up but strips the{' '}
-                      <code className="inline-code">__metadata.cribl.tags</code> the tag fields come from, so tags can&apos;t
-                      be baked while it runs; and <strong>(2)</strong> the{' '}
-                      <code className="inline-code">{EDGE_ENRICH_PIPELINE}</code> pipeline is set on the relay route to add
-                      the fields. Stopping baking reverses both.
+                      {bakeTags
+                        ? 'Each node’s tags are stamped onto its events — point-in-time attribution.'
+                        : 'Off: the dashboard joins host → tags live from the node inventory.'}
                     </Text>
                     {bakeTags && (
                       <Alert appearance="warning" title="Baking increases the data sent to Lake">
@@ -1237,13 +1386,6 @@ export function SetupGuide() {
                         (not aggregated into windows), so more events land there — higher storage credits. Volume totals
                         stay accurate (the dashboard sums per-interval byte counts), but the data is finer-grained. This is
                         the trade-off for point-in-time tag attribution.
-                      </Alert>
-                    )}
-                    {bakeTags && (
-                      <Alert appearance="info" title="Requires fleet metadata collection">
-                        Tags reach events only if the fleet collects node metadata: Fleet Settings → Limits → Metadata →
-                        include <code className="inline-code">cribl</code>. Confirm with the Verify step below that the
-                        tag fields actually land in the data.
                       </Alert>
                     )}
                     {bakeTags && edge?.enrichEnabled && edge?.sourceRollup && (
@@ -1281,12 +1423,18 @@ export function SetupGuide() {
                 </div>
               </Collapse>
             </div>
-            <div className="setup-steps">
+            <div className="step-list">
               <StepRow
                 n={4}
                 title="Commit & deploy the fleet"
                 status="unknown"
-                detail="Commit pending changes and deploy them so the new config takes effect on all nodes. Include any optional changes above by committing after you make them."
+                summary="Commit pending changes and deploy them so the new config takes effect on all nodes."
+                help={
+                  <Text variant="body-sm-normal">
+                    Make any optional changes above first, then commit — they ship in the same deploy. Routes and
+                    deploys can’t be auto-detected by this app, so re-running either is always safe if you’re not sure.
+                  </Text>
+                }
                 action={
                   <Button variant="secondary" pending={busy === 'edge-deploy'} disabled={!fleet} onClick={deployEdge}>
                     Commit & deploy
@@ -1294,20 +1442,35 @@ export function SetupGuide() {
                 }
               />
             </div>
-            <Text color="subtle" variant="body-sm-normal">
-              Routes and deploys can’t be auto-detected here, so re-adding a route or deploying is safe to skip if you’ve
-              already done it. Verify data is flowing with the check below.
-            </Text>
           </div>
           </Collapse>
       )}
 
-      <Collapse title="Step 4 · Verify data & field names" defaultExpanded={false}>
+      <Collapse
+        title="Step 4 · Verify data & field names"
+        {...section('verify')}
+        headerTrailingContentSlot={
+          <SectionStatus
+            status={dataFlowing ? 'ready' : 'unknown'}
+            label={dataFlowing ? `${sampleFields.length} fields` : 'Not verified'}
+          />
+        }
+      >
         <div className="section-stack">
-        <Text color="subtle" variant="body-sm-normal">
-          Reads a small sample from the dataset and lists its fields. Use these exact names in Settings → Field mapping
-          so the volume math is correct. Data can take a few minutes to appear after both groups deploy.
-        </Text>
+        <div className="setup-status-next">
+          <Text color="subtle" variant="body-sm-normal">
+            Reads a small sample from “{dataset || 'the dataset'}” and lists its fields.
+          </Text>
+          <HelpPopover label="About verifying">
+            <Text variant="body-sm-normal">
+              Use the exact field names it reports in Settings → Field mapping, so the volume math is correct.
+            </Text>
+            <Text variant="body-sm-normal">
+              Data can take a few minutes to appear after both groups deploy. If you turned on tag baking, this is where
+              you confirm the tag fields actually landed.
+            </Text>
+          </HelpPopover>
+        </div>
         <div className="controls">
           <Button variant="primary" pending={verifying} disabled={!dataset} onClick={() => void verify()}>
             Run sample query
@@ -1346,6 +1509,74 @@ export function SetupGuide() {
             )}
           </div>
         )}
+        </div>
+      </Collapse>
+
+      <Collapse
+        title="Connection settings"
+        {...section('conn')}
+        headerTrailingContentSlot={
+          <Pill appearance="info" variant="muted">
+            {`${transportLabel(transport)} · port ${relayPort}`}
+          </Pill>
+        }
+      >
+        <div className="section-stack">
+        <div className="setup-status-next">
+          <Text color="subtle" variant="body-sm-normal">
+            Defaults work for most Cribl.Cloud orgs and the endpoint auto-fills.
+          </Text>
+          <HelpPopover label="About connection settings">
+            <Text variant="body-sm-normal">
+              These control how Edge sends data to the Stream group: the transport, the port both sides use, the id of
+              the forwarding destination created on each fleet, and the endpoint it sends to.
+            </Text>
+            <Text variant="body-sm-normal">
+              Keep the destination id the same across monitored fleets so this guide can detect each fleet’s
+              destination. The Stream route matches on the originating Edge source rather than this id, so renaming it
+              won’t break routing.
+            </Text>
+            {suggested.isCloud && (
+              <Text variant="body-sm-normal">
+                The endpoint is auto-derived from your org URL and the selected Worker Group (
+                <code className="inline-code">&lt;group&gt;.&lt;workspace&gt;.&lt;org&gt;.&lt;domain&gt;</code>) and
+                updates if you change the group or port. Confirm the port matches the {transportLabel(transport)} source
+                (default {defaultPort(transport)}), and edit it if your ingest address differs.
+              </Text>
+            )}
+          </HelpPopover>
+        </div>
+        <div className="field-grid">
+          <SelectField
+            label="Transport"
+            value={transport}
+            items={TRANSPORT_ITEMS}
+            onChange={(v) => v != null && onTransport(v as RelayTransport)}
+          />
+          <TextField
+            label="Port"
+            value={String(relayPort)}
+            onChange={onPort}
+            helperText={`Default ${defaultPort(transport)} for ${transportLabel(transport)}. Must match on the Stream source and every Edge destination.`}
+          />
+          <TextField
+            label="Edge destination ID"
+            value={config?.relayDestId ?? ''}
+            onChange={(v) => patchConfig({ relayDestId: v })}
+            placeholder={EDGE_RELAY_ID}
+            helperText="Shared by every monitored fleet. Change it here if you renamed it in Cribl."
+          />
+          <TextField
+            label={transport === 'cribl_http' ? 'Stream endpoint URL (shared)' : 'Stream receiver host (shared)'}
+            value={config?.relayEndpoint ?? ''}
+            onChange={(v) => patchConfig({ relayEndpoint: v })}
+            helperText={
+              transport === 'cribl_http'
+                ? `e.g. https://<worker-host>:${relayPort}. Auto-filled from the Stream group when possible — edit if needed.`
+                : 'Hostname of a Stream worker. Auto-filled when possible — edit if needed.'
+            }
+          />
+        </div>
         </div>
       </Collapse>
     </div>
@@ -1464,31 +1695,46 @@ function DatasetPicker({ config, onChange }: { config: AppConfig; onChange: (c: 
 
   return (
     <div className="section-stack">
-      <Text color="subtle" variant="body-sm-normal">
-        Pick the Cribl Lake dataset that routed Edge metrics land in. Reuse an existing dataset to avoid duplicate
-        storage credits, or create a dedicated one with a short retention.
-      </Text>
-      <div className="save-bar">
-          <Button variant="secondary" disabled={loading} onClick={() => void load()}>
-            {loading ? 'Loading…' : 'Reload datasets'}
-          </Button>
-        </div>
+      <div className="setup-status-next">
+        <Text color="subtle" variant="body-sm-normal">
+          The Cribl Lake dataset routed Edge metrics land in.
+        </Text>
+        <HelpPopover label="About the Lake dataset">
+          <Text variant="body-sm-normal">
+            Reuse an existing dataset to avoid duplicate storage credits, or create a dedicated one — a shorter
+            retention means fewer credits.
+          </Text>
+          <Text variant="body-sm-normal">
+            The dashboard queries whatever you pick here directly through Cribl Search, and the Stream Lake destination
+            writes to it.
+          </Text>
+        </HelpPopover>
+      </div>
 
-        {error && (
-          <Alert appearance="warning" title="Couldn't list datasets" onDismiss={() => setError(null)}>
-            {error}
-          </Alert>
-        )}
+      {error && (
+        <Alert appearance="warning" title="Couldn't list datasets" onDismiss={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {selectedIsNonWritable && (
+        <Alert appearance="warning" title="Selected dataset is not writable">
+          “{selected}” is a built-in Cribl dataset and cannot be a route destination. Pick another dataset or create one
+          to receive the routed metrics.
+        </Alert>
+      )}
 
-        {error && (
-          <div className="panel">
-            <Text variant="body-sm-semibold">Set the dataset name manually</Text>
+      <div className="panel">
+        {/* Listing is Cribl.Cloud-only. When it fails, typing the name is the
+            only way forward, so that field replaces the picker rather than
+            hiding behind a disclosure. */}
+        {error ? (
+          <>
             <div className="field-grid">
               <TextField
                 label="Dataset name"
                 value={manualName}
                 onChange={(v) => setManualName(v)}
-                helperText="Lake listing is Cribl.Cloud-only. If you already have a dataset, type its exact name — the dashboard queries it directly via Search."
+                helperText="Type the exact name of an existing dataset — the dashboard queries it directly via Search."
               />
             </div>
             <div className="save-bar">
@@ -1501,23 +1747,8 @@ function DatasetPicker({ config, onChange }: { config: AppConfig; onChange: (c: 
                 Use this dataset
               </Button>
             </div>
-          </div>
-        )}
-
-        {selected && (
-          <Text variant="body-sm-semibold">
-            Current: <Tag color="blue" size="sm">{selected}</Tag>
-          </Text>
-        )}
-        {selectedIsNonWritable && (
-          <Alert appearance="warning" title="Selected dataset is not writable">
-            “{selected}” is a built-in Cribl dataset and cannot be a route destination. Pick another dataset or create
-            one to receive the routed metrics.
-          </Alert>
-        )}
-
-        <div className="panel">
-          <Text variant="body-sm-semibold">Use an existing dataset</Text>
+          </>
+        ) : (
           <div className="field-grid">
             <SelectField
               label="Dataset"
@@ -1528,47 +1759,55 @@ function DatasetPicker({ config, onChange }: { config: AppConfig; onChange: (c: 
               helperText={
                 items.length === 0
                   ? 'No datasets available — create one below.'
-                  : 'Select a dataset to route Edge metrics into.'
+                  : selected
+                    ? `Currently using “${selected}”.`
+                    : 'Select a dataset to route Edge metrics into.'
               }
             />
           </div>
-        </div>
-
-        <div className="dataset-or">or</div>
-
-        <div className="panel">
-          <Text variant="body-sm-semibold">Create a new dataset</Text>
-          <div className="field-grid">
-            <TextField
-              label="New dataset id"
-              value={newId}
-              onChange={(v) => setNewId(v)}
-              helperText="Lowercase letters, numbers, underscores."
-            />
-            <TextField
-              label="Retention (days)"
-              value={newRetention}
-              onChange={(v) => setNewRetention(v)}
-              helperText="Shorter retention = fewer credits."
-            />
-          </div>
-          <div className="save-bar">
-            <Button
-              variant="primary"
-              pending={saving === 'create'}
-              disabled={!newId.trim() || saving != null}
-              onClick={onCreate}
-            >
-              Create dataset
-            </Button>
-          </div>
-        </div>
-
-        {msg && (
-          <Text color="subtle" variant="body-sm-normal">
-            {msg}
-          </Text>
         )}
+
+        <Collapse title="Create a new dataset" defaultExpanded={false}>
+          <div className="section-stack">
+            <div className="field-grid">
+              <TextField
+                label="New dataset id"
+                value={newId}
+                onChange={(v) => setNewId(v)}
+                helperText="Lowercase letters, numbers, underscores."
+              />
+              <TextField
+                label="Retention (days)"
+                value={newRetention}
+                onChange={(v) => setNewRetention(v)}
+                helperText="Shorter retention = fewer credits."
+              />
+            </div>
+            <div className="save-bar">
+              <Button
+                variant="primary"
+                pending={saving === 'create'}
+                disabled={!newId.trim() || saving != null}
+                onClick={onCreate}
+              >
+                Create dataset
+              </Button>
+            </div>
+          </div>
+        </Collapse>
+
+        <div className="save-bar">
+          <Button variant="tertiary" disabled={loading} onClick={() => void load()}>
+            {loading ? 'Loading…' : 'Reload datasets'}
+          </Button>
+        </div>
+      </div>
+
+      {msg && (
+        <Text color="subtle" variant="body-sm-normal">
+          {msg}
+        </Text>
+      )}
     </div>
   )
 }
@@ -1634,6 +1873,30 @@ function MapButton({
   )
 }
 
+// Body of a confirmation modal.
+//
+// The confirmation modal is a fixed width (ModalCreateOptions omits `size`) and
+// clips overflow, so a long unbreakable value inlined in the sentence pushes
+// the footer buttons out of the dialog — the ~190-character
+// __forwardedAttrs.__inputId filter did exactly that. Long values go in a
+// wrapping code block instead, and the prose itself is allowed to break so
+// resource ids and ingest URLs can't overflow either.
+function ConfirmBody({ text, code }: { text: string; code?: { label: string; value: string }[] }) {
+  return (
+    <div className="confirm-body">
+      <Text variant="body-sm-normal">{text}</Text>
+      {code?.map(({ label, value }) => (
+        <div key={label} className="confirm-code">
+          <Text color="subtle" variant="body-xs-normal">
+            {label}
+          </Text>
+          <pre className="code-block">{value}</pre>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // Compact status pill for a collapsible section header (headerTrailingContentSlot).
 function SectionStatus({ status, label }: { status: 'ready' | 'todo' | 'unknown'; label: string }) {
   const appearance = status === 'ready' ? 'success' : status === 'todo' ? 'warning' : 'info'
@@ -1644,38 +1907,24 @@ function SectionStatus({ status, label }: { status: 'ready' | 'todo' | 'unknown'
   )
 }
 
-function StepRow({
-  n,
-  title,
+// One readiness chip in the always-visible status strip: what it is, how it's
+// doing. Lets a fully-collapsed guide still answer "where am I?".
+function StatusChip({
+  label,
   status,
-  detail,
-  action,
+  value,
 }: {
-  n: number
-  title: string
-  status: 'ready' | 'missing' | 'unknown'
-  detail: ReactNode
-  action: ReactNode
+  label: string
+  status: 'ready' | 'todo' | 'unknown'
+  value: string
 }) {
   return (
-    <div className="setup-step">
-      <div className="setup-step-num">{n}</div>
-      <div className="setup-step-body">
-        <div className="setup-step-head">
-          <Text variant="body-sm-semibold">{title}</Text>
-          {status === 'ready' && <Pill appearance="success" variant="muted">Ready</Pill>}
-          {status === 'missing' && <Pill appearance="warning" variant="muted">Missing</Pill>}
-        </div>
-        {typeof detail === 'string' ? (
-          <Text color="subtle" variant="body-sm-normal">
-            {detail}
-          </Text>
-        ) : (
-          detail
-        )}
-      </div>
-      <div className="setup-step-action">{action}</div>
-    </div>
+    <span className="setup-chip">
+      <Text color="subtle" variant="body-xs-normal">
+        {label}
+      </Text>
+      <SectionStatus status={status} label={value} />
+    </span>
   )
 }
 

@@ -3,6 +3,7 @@
 
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { RouterProvider, TabNav, Text } from '@capra/core'
+import { ErrorBoundary } from './ErrorBoundary'
 
 const TABS = [
   { key: '/', name: 'Dashboard', href: '/' },
@@ -30,7 +31,11 @@ export function AppShell() {
           <TabNav activeKey={activeKey} items={TABS} aria-label="Primary" />
         </nav>
         <main className="app-main">
-          <Outlet />
+          {/* Keyed by route so navigating to another tab clears a caught error
+              instead of leaving the boundary stuck on the failed page. */}
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </RouterProvider>

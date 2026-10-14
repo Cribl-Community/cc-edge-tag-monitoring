@@ -62,6 +62,14 @@
   align-self: flex-end;
 }
 
+/* "Reading volume from <dataset>" line above the dashboard controls. */
+.dataset-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: token('spacing.sm');
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -84,24 +92,6 @@
   border: token('border.default');
   border-radius: token('radius.md');
   background-color: token('color.background.surface');
-}
-
-.dataset-or {
-  display: flex;
-  align-items: center;
-  gap: token('spacing.md');
-  color: token('color.foreground.subtle');
-  text-transform: uppercase;
-  font-size: 12px;
-  letter-spacing: 0.05em;
-}
-
-.dataset-or::before,
-.dataset-or::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background-color: token('color.border.neutral.subtle');
 }
 
 /* ---- Volume table ------------------------------------------------------ */
@@ -229,6 +219,159 @@
 
 /* ---- Setup Guide ------------------------------------------------------- */
 
+/* Always-visible status strip: where you are and the one thing to do next.
+   Replaces the old intro card, whose prose now lives in a closed disclosure. */
+.setup-status {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.md');
+  padding: token('spacing.lg');
+  border: token('border.default');
+  border-radius: token('radius.md');
+  background-color: token('color.background.surface');
+}
+
+.setup-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: token('spacing.md');
+}
+
+.setup-status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: token('spacing.sm');
+}
+
+/* Pushes the Re-check button to the trailing edge of the status row. */
+.setup-status-action {
+  margin-inline-start: auto;
+}
+
+.setup-status-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: token('spacing.sm');
+}
+
+/* A step's chip pairs a label with its state, so a closed section still reads. */
+.setup-chip {
+  display: flex;
+  align-items: center;
+  gap: token('spacing.xs');
+}
+
+/* ---- Setup Guide: step list -------------------------------------------- */
+
+/* One bordered list with internal dividers, instead of a card per step. */
+.step-list {
+  display: flex;
+  flex-direction: column;
+  border: token('border.default');
+  border-radius: token('radius.md');
+  background-color: token('color.background.surface');
+  overflow: hidden;
+}
+
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: token('spacing.md');
+  padding: token('spacing.md');
+}
+
+.step-row + .step-row {
+  border-top: token('border.default');
+}
+
+/* Completed steps recede so only outstanding work draws the eye. */
+.step-row-done .step-row-num {
+  background-color: token('color.background.neutral.subtle');
+  color: token('color.foreground.subtle');
+}
+
+.step-row-num {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: token('radius.full');
+  background-color: token('color.background.neutral.default');
+  color: token('color.foreground.default');
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.step-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.xs');
+  flex: 1;
+  min-width: 0;
+}
+
+.step-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: token('spacing.sm');
+}
+
+.step-row-action {
+  flex-shrink: 0;
+  display: flex;
+  gap: token('spacing.sm');
+  align-items: center;
+}
+
+/* ---- Setup Guide: help popovers ---------------------------------------- */
+
+.help-popover {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.sm');
+  max-width: 44ch;
+}
+
+/* ---- Confirmation modals ----------------------------------------------- */
+
+/* The confirmation modal is a fixed width and clips overflow, so its body must
+   be able to break: resource ids and ingest URLs are single unbreakable tokens,
+   and an un-wrapped one pushes the footer buttons out of the dialog. */
+.confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.md');
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.confirm-code {
+  display: flex;
+  flex-direction: column;
+  gap: token('spacing.xs');
+  min-width: 0;
+}
+
+/* Route filters run to ~190 characters, so they wrap in a block rather than
+   stretching a popover or a step row. */
+.code-block {
+  margin: 0;
+  padding: token('spacing.sm');
+  border-radius: token('radius.md');
+  background-color: token('color.background.neutral.subtle');
+  color: token('color.foreground.default');
+  font-family: monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .setup-flow {
   display: flex;
   flex-wrap: wrap;
@@ -249,20 +392,6 @@
   gap: token('spacing.md');
 }
 
-.setup-recheck {
-  display: flex;
-  justify-content: flex-start;
-}
-
-.setup-steps {
-  display: flex;
-  flex-direction: column;
-  gap: token('spacing.sm');
-  /* Spacing around the step list is handled by the parent's gap (.section-stack
-     or .panel), so no external margin here. */
-  margin: 0;
-}
-
 /* Optional/advanced Edge steps, tucked into a nested Collapse below the required
    numbered steps so they read as clearly secondary. */
 .setup-optional-body {
@@ -277,54 +406,19 @@
   gap: token('spacing.sm');
 }
 
+/* Switch + its visible label + the "?" help trigger on one line. Capra's Switch
+   takes only an aria-label, so the label text lives beside it. */
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: token('spacing.sm');
+}
+
 .setup-optional-action {
   display: flex;
   gap: token('spacing.sm');
   margin-top: token('spacing.xs');
-}
-
-.setup-step {
-  display: flex;
-  align-items: center;
-  gap: token('spacing.md');
-  padding: token('spacing.md');
-  border: token('border.default');
-  border-radius: token('radius.md');
-  background-color: token('color.background.surface');
-}
-
-.setup-step-num {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: token('radius.full');
-  background-color: token('color.background.neutral.default');
-  color: token('color.foreground.default');
-  font-weight: 600;
-}
-
-.setup-step-body {
-  display: flex;
-  flex-direction: column;
-  gap: token('spacing.xs');
-  flex: 1;
-  min-width: 0;
-}
-
-.setup-step-head {
-  display: flex;
-  align-items: center;
-  gap: token('spacing.sm');
-}
-
-.setup-step-action {
-  flex-shrink: 0;
-  display: flex;
-  gap: token('spacing.sm');
-  align-items: center;
 }
 
 .verify-result {

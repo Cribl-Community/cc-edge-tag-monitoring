@@ -49,8 +49,10 @@ export interface AppConfig {
   /**
    * Id of the Cribl HTTP/TCP destination created on the Edge fleet that forwards
    * to Stream. Customizable: if the user renames the destination in Cribl, this
-   * must follow, because the Stream route matches forwarded events on
-   * __forwardedAttrs.__outputId == '<transport>:<relayDestId>'. Defaults to
+   * must follow, because the Setup Guide creates and detects the destination by
+   * this id on every monitored fleet. The Stream route does NOT match on it (it
+   * matches the originating Edge source via __forwardedAttrs.__inputId), so a
+   * rename affects status detection only, not routing. Defaults to
    * "cc_edge_tag_relay".
    */
   relayDestId: string
@@ -86,9 +88,11 @@ export interface AppConfig {
   skipSetup: boolean
   /**
    * Edge fleets being monitored by this app (senders). A customer can relay
-   * several fleets into the same Stream Worker Group; every fleet creates a relay
-   * destination with the SAME id (relayDestId), so a single Stream route
-   * (filtering on __forwardedAttrs.__outputId) receives them all. The Setup Guide
+   * several fleets into the same Stream Worker Group; a single Stream route
+   * (filtering relayed events on __forwardedAttrs.__inputId, the originating Edge
+   * source) receives them all, whatever each fleet's relay destination is named.
+   * Fleets still share one relay destination id (relayDestId) so the Setup Guide
+   * can detect each fleet's destination by id. The Setup Guide
    * tracks these to show per-fleet status; the dashboard reads all of them from
    * the shared Lake dataset regardless. Auto-populated as fleets are configured.
    */
