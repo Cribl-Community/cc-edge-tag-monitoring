@@ -1,0 +1,86 @@
+# Product API access declaration. Admins see exactly which platform resources
+# this app uses at install time. App-scoped paths (/a/${appId}/kvstore/*,
+# /a/${appId}/proxy/*) are granted automatically and are intentionally omitted.
+#
+# Contextual endpoints are called with an /m/:gid prefix (e.g.
+# /m/<fleet>/system/inputs). We declare both the /m/:gid form and the bare
+# /system... / /routes... / /version... form so authorization matches whichever
+# path the platform checks against.
+
+policies:
+  # --- Fleets & nodes (read-only) -------------------------------------------
+  # List Edge fleets and read the node inventory (hostname + custom tags) used
+  # for the host -> tag roll-up on the dashboard.
+  - object: '/master/groups'
+    actions: ['GET']
+  - object: '/master/groups/*'
+    actions: ['GET', 'PATCH'] # includes PATCH /master/groups/:fleet/deploy
+  - object: '/master/workers'
+    actions: ['GET']
+
+  # --- Sources: detect/enable internal metrics, create the Stream relay in ---
+  # On the Edge fleet, the Cribl Internal source is a built-in singleton: we
+  # list inputs (GET) and enable it if disabled (PATCH on the by-id path).
+  # On the Stream Worker Group, we create the Cribl HTTP/TCP source that
+  # receives relayed Edge data (POST).
+  - object: '/m/:gid/system/inputs'
+    actions: ['GET', 'POST']
+  - object: '/system/inputs'
+    actions: ['GET', 'POST']
+  - object: '/m/:gid/system/inputs/*'
+    actions: ['GET', 'PATCH']
+  - object: '/system/inputs/*'
+    actions: ['GET', 'PATCH']
+
+  # --- Create the Lake destination on a fleet -------------------------------
+  - object: '/m/:gid/system/outputs'
+    actions: ['GET', 'POST']
+  - object: '/system/outputs'
+    actions: ['GET', 'POST']
+
+  # --- Add the route that sends metrics onward, ABOVE the default catch-all ---
+  # The default route (filter "true", final) consumes every event, so a route
+  # appended after it never matches. We GET the routing table and PATCH it back
+  # with our route inserted before the catch-all — hence GET + PATCH (not POST).
+  - object: '/m/:gid/routes'
+    actions: ['GET']
+  - object: '/m/:gid/routes/*'
+    actions: ['GET', 'PATCH']
+  - object: '/routes'
+    actions: ['GET']
+  - object: '/routes/*'
+    actions: ['GET', 'PATCH']
+
+  # --- Optional "bake node tags into events" pre-processing pipeline ---------
+  # When the user enables tag baking, we create/patch a pipeline on the Edge
+  # fleet that surfaces node tags into fields, and set it as the pre-processing
+  # pipeline on the internal-metrics source (PATCH inputs, already declared).
+  - object: '/m/:gid/pipelines'
+    actions: ['GET', 'POST']
+  - object: '/m/:gid/pipelines/*'
+    actions: ['GET', 'PATCH']
+  - object: '/pipelines'
+    actions: ['GET', 'POST']
+  - object: '/pipelines/*'
+    actions: ['GET', 'PATCH']
+
+  # --- Cribl Lake datasets: list existing & create new ----------------------
+  # Used by the Setup Guide's dataset picker so the user can reuse an existing
+  # dataset (fewer credits) or create a dedicated one.
+  - object: '/products/lake/lakes/:lakeId/datasets'
+    actions: ['GET', 'POST']
+  - object: '/products/lake/lakes/:lakeId/datasets/*'
+    actions: ['GET']
+
+  # --- Commit pending changes before deploy ---------------------------------
+  - object: '/m/:gid/version/commit'
+    actions: ['POST']
+  - object: '/version/commit'
+    actions: ['POST']
+
+  # --- Cribl Search (always default_search) ---------------------------------
+  # Submit volume/sample searches and poll for results.
+  - object: '/m/default_search/search/jobs'
+    actions: ['GET', 'POST']
+  - object: '/m/default_search/search/jobs/*'
+    actions: ['GET']
