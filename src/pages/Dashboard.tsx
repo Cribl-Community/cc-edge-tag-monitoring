@@ -4,7 +4,7 @@
 // app-side (see lib/rollup).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, ButtonLink, EmptyState, SelectField, Spinner, Text } from '@capra/core'
+import { Alert, Button, ButtonLink, EmptyState, SelectField, Spinner, Tag, Text } from '@capra/core'
 import { ArrowUpRightFromSquare } from '@capra/icons'
 import { getWorkers, runSearchJob, apiBaseUrl, CriblApiError } from '../api/cribl'
 import { buildTagIndex, type TagIndex } from '../lib/tags'
@@ -36,6 +36,11 @@ export function Dashboard() {
   // search is in flight or before the first run, which hides the link.
   const [jobId, setJobId] = useState<string | null>(null)
   const rawRef = useRef<Record<string, unknown>[]>([])
+  // Whether a search has completed at least once. Distinguishes "no rows yet,
+  // still working" (show the spinner) from "the search ran and found nothing"
+  // (show the empty state) — without it, a zero-row result rendered nothing at
+  // all, because the empty state lives inside the `result &&` branch below.
+  const searchedRef = useRef(false)
 
   // Load config + node tag index once.
   useEffect(() => {
@@ -108,7 +113,10 @@ export function Dashboard() {
   // Group/filter are applied app-side, so changing them only re-rolls the last
   // result — no new Search. Only the time range / dataset changes the query.
   const recompute = useCallback(() => {
-    if (!config || !index || !groupBy || rawRef.current.length === 0) {
+    // Zero rows is a RESULT, not an absence of one: roll it up anyway so the
+    // "No volume in this range" empty state renders. Bailing out to null here
+    // left the page blank whenever a search legitimately found nothing.
+    if (!config || !index || !groupBy || !searchedRef.current) {
       setResult(null)
       return
     }
@@ -128,6 +136,7 @@ export function Dashboard() {
         const { jobId: id, rows } = await runSearchJob(query, earliest, latest, signal)
         if (signal.aborted) return
         rawRef.current = rows
+        searchedRef.current = true
         setJobId(id)
         setDataVersion((v) => v + 1)
       } catch (err) {
@@ -214,6 +223,22 @@ export function Dashboard() {
         </Alert>
       )}
       <div className="controls-block">
+        {/* Which dataset the numbers come from. Easy to lose track of once a
+            dataset is chosen in Settings, and a wrong one looks identical to a
+            broken relay: both just render "no volume". */}
+        {config && config.datasetName.trim() !== '' && (
+          <div className="dataset-note">
+            <Text color="subtle" variant="body-sm-normal">
+              Reading volume from Cribl Lake dataset
+            </Text>
+            <Tag color="blue" size="sm">
+              {config.datasetName}
+            </Tag>
+            <ButtonLink href="/settings" variant="tertiary" size="sm">
+              Change
+            </ButtonLink>
+          </div>
+        )}
         <div className="controls">
           <SelectField
             label="Time range"
@@ -288,8 +313,8 @@ export function Dashboard() {
           {result.table.length === 0 ? (
             <EmptyState
               illustration="EmptyBowl"
-              title="No volume in this range"
-              description="The dataset returned no rows for the selected time range and filters. Try a wider range, or verify the field mapping in Settings."
+              title={`No volume in “${config?.datasetName ?? ''}” for this range`}
+              description="The search ran against that dataset and it returned no rows for this time range and filters. Check you're pointed at the dataset your relay actually writes to (Settings), try a wider range, and verify the field mapping. If volume used to appear and recently stopped, the relay itself may have stopped delivering — re-check the Setup Guide."
             >
               {searchUiUrl && (
                 <ButtonLink
@@ -302,6 +327,9 @@ export function Dashboard() {
                   Investigate in Cribl Search
                 </ButtonLink>
               )}
+              <ButtonLink href="/setup" variant="secondary">
+                Open Setup Guide
+              </ButtonLink>
             </EmptyState>
           ) : (
             <>
